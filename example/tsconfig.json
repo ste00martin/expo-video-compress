@@ -1,0 +1,10 @@
+{
+  "extends": "expo/tsconfig.base",
+  "compilerOptions": {
+    "strict": true,
+    "paths": {
+      "expo-video-compress": ["../src/index"],
+      "expo-video-compress/*": ["../src/*"]
+    }
+  }
+}
