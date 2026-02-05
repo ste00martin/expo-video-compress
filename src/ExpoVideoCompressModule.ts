@@ -1,12 +1,12 @@
 import { NativeModule, requireNativeModule } from 'expo';
 
-import { ExpoVideoCompressModuleEvents } from './ExpoVideoCompress.types';
-
-declare class ExpoVideoCompressModule extends NativeModule<ExpoVideoCompressModuleEvents> {
-  PI: number;
-  hello(): string;
-  setValueAsync(value: string): Promise<void>;
+declare class ExpoVideoCompressModule extends NativeModule {
+  /**
+   * Trims a video so that its first frame starts at timestamp 0.
+   * @param videoPath Local file path (file:// URI) to the source video
+   * @returns A promise that resolves with the file:// URI of the trimmed video
+   */
+  trimVideo(videoPath: string): Promise<string>;
 }
 
-// This call loads the native module object from the JSI.
 export default requireNativeModule<ExpoVideoCompressModule>('ExpoVideoCompress');

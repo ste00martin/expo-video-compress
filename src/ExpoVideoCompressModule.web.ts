@@ -1,14 +1,8 @@
 import { registerWebModule, NativeModule } from 'expo';
 
-import { ExpoVideoCompressModuleEvents } from './ExpoVideoCompress.types';
-
-class ExpoVideoCompressModule extends NativeModule<ExpoVideoCompressModuleEvents> {
-  PI = Math.PI;
-  async setValueAsync(value: string): Promise<void> {
-    this.emit('onChange', { value });
-  }
-  hello() {
-    return 'Hello world! 👋';
+class ExpoVideoCompressModule extends NativeModule {
+  async trimVideo(_videoPath: string): Promise<string> {
+    throw new Error('trimVideo is not supported on web');
   }
 }
 
