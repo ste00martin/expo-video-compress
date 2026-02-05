@@ -76,12 +76,14 @@ class ExpoVideoCompressModule : Module() {
     // Step 2: Find the first video frame's presentation timestamp
     val extractor = MediaExtractor()
     var firstPtsUs = 0L
+    var videoMime = ""
     try {
       extractor.setDataSource(cleanVideoPath)
       for (i in 0 until extractor.trackCount) {
         val format = extractor.getTrackFormat(i)
         val mime = format.getString(MediaFormat.KEY_MIME) ?: continue
         if (mime.startsWith("video/")) {
+          videoMime = mime
           extractor.selectTrack(i)
           firstPtsUs = extractor.sampleTime // microseconds
           break
@@ -94,11 +96,13 @@ class ExpoVideoCompressModule : Module() {
       extractor.release()
     }
 
-    Log.d(TAG, "First video frame PTS: ${firstPtsUs}us (${firstPtsUs / 1000}ms)")
+    val needsTrim = firstPtsUs > 0
+    val needsHevcEncode = videoMime != MediaFormat.MIMETYPE_VIDEO_HEVC
+    Log.d(TAG, "First video frame PTS: ${firstPtsUs}us (${firstPtsUs / 1000}ms), codec: $videoMime, needsTrim: $needsTrim, needsHevcEncode: $needsHevcEncode")
 
-    // If first frame is already at timestamp 0, return the original path
-    if (firstPtsUs <= 0) {
-      Log.d(TAG, "First frame already at timestamp 0, returning original")
+    // If no processing needed, return the original path
+    if (!needsTrim && !needsHevcEncode) {
+      Log.d(TAG, "No processing needed, returning original")
       promise.resolve(videoPath)
       return
     }
@@ -118,24 +122,27 @@ class ExpoVideoCompressModule : Module() {
     }
 
     // Step 4: Generate output path in cache directory
-    val outputFile = File(context.cacheDir, "trimmed_${UUID.randomUUID()}.mp4")
+    val outputFile = File(context.cacheDir, "processed_${UUID.randomUUID()}.mp4")
     val cleanOutputPath = outputFile.absolutePath
     if (outputFile.exists()) {
       outputFile.delete()
     }
 
-    // Step 5: Create MediaItem with clipping from the first frame's PTS
-    val firstPtsMs = firstPtsUs / 1000
-    Log.d(TAG, "Clipping video starting at ${firstPtsMs}ms to remove leading dead time")
-
-    val clippingConfig = MediaItem.ClippingConfiguration.Builder()
-      .setStartPositionMs(firstPtsMs)
-      .build()
-
-    val mediaItem = MediaItem.Builder()
+    // Step 5: Create MediaItem, with clipping if trimming is needed
+    val mediaItemBuilder = MediaItem.Builder()
       .setUri("file://$cleanVideoPath")
-      .setClippingConfiguration(clippingConfig)
-      .build()
+
+    if (needsTrim) {
+      val firstPtsMs = firstPtsUs / 1000
+      Log.d(TAG, "Clipping video starting at ${firstPtsMs}ms to remove leading dead time")
+      mediaItemBuilder.setClippingConfiguration(
+        MediaItem.ClippingConfiguration.Builder()
+          .setStartPositionMs(firstPtsMs)
+          .build()
+      )
+    }
+
+    val mediaItem = mediaItemBuilder.build()
 
     val editedMediaItem = try {
       EditedMediaItem.Builder(mediaItem).build()
@@ -162,7 +169,12 @@ class ExpoVideoCompressModule : Module() {
     val mainHandler = Handler(Looper.getMainLooper())
     mainHandler.post {
       try {
-        val transformer = Transformer.Builder(context)
+        val transformerBuilder = Transformer.Builder(context)
+        if (needsHevcEncode) {
+          Log.d(TAG, "Encoding to H.265/HEVC")
+          transformerBuilder.setVideoMimeType(MediaFormat.MIMETYPE_VIDEO_HEVC)
+        }
+        val transformer = transformerBuilder
           .addListener(object : Transformer.Listener {
             override fun onCompleted(composition: Composition, exportResult: ExportResult) {
               Log.d(TAG, "Trim completed - duration: ${exportResult.durationMs}ms, " +
@@ -189,7 +201,7 @@ class ExpoVideoCompressModule : Module() {
           })
           .build()
 
-        Log.d(TAG, "Starting trim from ${firstPtsMs}ms...")
+        Log.d(TAG, "Starting transform (trim: $needsTrim, hevc: $needsHevcEncode)...")
         transformer.start(composition, cleanOutputPath)
       } catch (e: Exception) {
         Log.e(TAG, "Exception building/starting transformer", e)
