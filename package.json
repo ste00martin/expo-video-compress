@@ -1,5 +1,5 @@
 {
-  "name": "expo-video-compress",
+  "name": "@stefanmartin/expo-video-compress",
   "version": "0.2.0",
   "description": "trims the beginning of a video so the first video frame is always at t=0 of the video. Also converts video to h265 for android; ios already records with h265 by default.",
   "main": "build/index.js",
