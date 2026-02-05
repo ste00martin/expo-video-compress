@@ -27,6 +27,14 @@ class ExpoVideoCompressModule : Module() {
   companion object {
     private const val TAG = "ExpoVideoCompress"
 
+    fun buildResult(uri: String, trimmedStartSeconds: Double, convertedToHevc: Boolean): Map<String, Any> {
+      return mapOf(
+        "uri" to uri,
+        "trimmedStartSeconds" to trimmedStartSeconds,
+        "convertedToHevc" to convertedToHevc
+      )
+    }
+
     @OptIn(UnstableApi::class)
     fun getExportErrorCodeName(errorCode: Int): String {
       return when (errorCode) {
@@ -100,10 +108,12 @@ class ExpoVideoCompressModule : Module() {
     val needsHevcEncode = videoMime != MediaFormat.MIMETYPE_VIDEO_HEVC
     Log.d(TAG, "First video frame PTS: ${firstPtsUs}us (${firstPtsUs / 1000}ms), codec: $videoMime, needsTrim: $needsTrim, needsHevcEncode: $needsHevcEncode")
 
+    val trimmedStartSeconds = if (needsTrim) firstPtsUs / 1_000_000.0 else 0.0
+
     // If no processing needed, return the original path
     if (!needsTrim && !needsHevcEncode) {
       Log.d(TAG, "No processing needed, returning original")
-      promise.resolve(videoPath)
+      promise.resolve(buildResult(videoPath, 0.0, false))
       return
     }
 
@@ -147,7 +157,7 @@ class ExpoVideoCompressModule : Module() {
     val editedMediaItem = try {
       EditedMediaItem.Builder(mediaItem).build()
     } catch (e: Exception) {
-      promise.reject("EDITED_MEDIA_ERROR", "Failed to create edited media item: ${e.message}", e)
+      promise.reject("EDITED_MEDIA_ERROR", "Failed to create edited media item: ${e.message} [trimmedStartSeconds=$trimmedStartSeconds, convertedToHevc=$needsHevcEncode]", e)
       return
     }
 
@@ -161,7 +171,7 @@ class ExpoVideoCompressModule : Module() {
       }
       compositionBuilder.build()
     } catch (e: Exception) {
-      promise.reject("COMPOSITION_ERROR", "Failed to create composition: ${e.message}", e)
+      promise.reject("COMPOSITION_ERROR", "Failed to create composition: ${e.message} [trimmedStartSeconds=$trimmedStartSeconds, convertedToHevc=$needsHevcEncode]", e)
       return
     }
 
@@ -179,8 +189,9 @@ class ExpoVideoCompressModule : Module() {
             override fun onCompleted(composition: Composition, exportResult: ExportResult) {
               Log.d(TAG, "Trim completed - duration: ${exportResult.durationMs}ms, " +
                 "size: ${exportResult.fileSizeBytes} bytes, " +
-                "frames: ${exportResult.videoFrameCount}")
-              promise.resolve("file://$cleanOutputPath")
+                "frames: ${exportResult.videoFrameCount}, " +
+                "trimmedStartSeconds: $trimmedStartSeconds, convertedToHevc: $needsHevcEncode")
+              promise.resolve(buildResult("file://$cleanOutputPath", trimmedStartSeconds, needsHevcEncode))
             }
 
             override fun onError(
@@ -194,7 +205,7 @@ class ExpoVideoCompressModule : Module() {
 
               promise.reject(
                 "TRANSFORM_ERROR",
-                "Transform failed - ErrorCode: $errorCodeName, Message: ${exportException.message ?: "Unknown error"}",
+                "Transform failed - ErrorCode: $errorCodeName, Message: ${exportException.message ?: "Unknown error"} [trimmedStartSeconds=$trimmedStartSeconds, convertedToHevc=$needsHevcEncode]",
                 exportException
               )
             }
@@ -207,7 +218,7 @@ class ExpoVideoCompressModule : Module() {
         Log.e(TAG, "Exception building/starting transformer", e)
         promise.reject(
           "TRANSFORMER_BUILD_ERROR",
-          "Failed to build/start transformer: ${e.message}",
+          "Failed to build/start transformer: ${e.message} [trimmedStartSeconds=$trimmedStartSeconds, convertedToHevc=$needsHevcEncode]",
           e
         )
       }

@@ -1,7 +1,7 @@
 {
   "name": "expo-video-compress",
-  "version": "0.1.0",
-  "description": "crops video frames from the beginning and returns the first valid frame of the video, and compresses the video if the size is too large",
+  "version": "0.2.0",
+  "description": "trims the beginning of a video so the first video frame is always at t=0 of the video. Also converts video to h265 for android; ios already records with h265 by default.",
   "main": "build/index.js",
   "types": "build/index.d.ts",
   "scripts": {

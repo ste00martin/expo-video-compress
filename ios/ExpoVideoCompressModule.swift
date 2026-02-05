@@ -48,9 +48,15 @@ public class ExpoVideoCompressModule: Module {
     }
     reader.cancelReading()
 
+    let trimmedStartSeconds = max(firstSampleTime.seconds, 0)
+
     // If first frame is already at timestamp 0, return the original path
     if firstSampleTime == .zero || firstSampleTime.seconds <= 0 {
-      promise.resolve(videoPath)
+      promise.resolve([
+        "uri": videoPath,
+        "trimmedStartSeconds": 0.0,
+        "convertedToHevc": false
+      ])
       return
     }
 
@@ -83,7 +89,7 @@ public class ExpoVideoCompressModule: Module {
         try compositionAudioTrack.insertTimeRange(timeRange, of: audioTrack, at: .zero)
       }
     } catch {
-      promise.reject("COMPOSITION_ERROR", "Failed to insert tracks: \(error.localizedDescription)")
+      promise.reject("COMPOSITION_ERROR", "Failed to insert tracks: \(error.localizedDescription) [trimmedStartSeconds=\(trimmedStartSeconds), convertedToHevc=false]")
       return
     }
 
@@ -118,7 +124,7 @@ public class ExpoVideoCompressModule: Module {
       asset: composition,
       presetName: AVAssetExportPresetHighestQuality
     ) else {
-      promise.reject("EXPORT_ERROR", "Could not create export session")
+      promise.reject("EXPORT_ERROR", "Could not create export session [trimmedStartSeconds=\(trimmedStartSeconds), convertedToHevc=false]")
       return
     }
 
@@ -129,14 +135,18 @@ public class ExpoVideoCompressModule: Module {
     exportSession.exportAsynchronously {
       switch exportSession.status {
       case .completed:
-        promise.resolve("file://\(outputURL.path)")
+        promise.resolve([
+          "uri": "file://\(outputURL.path)",
+          "trimmedStartSeconds": trimmedStartSeconds,
+          "convertedToHevc": false
+        ])
       case .failed:
         let errorMessage = exportSession.error?.localizedDescription ?? "Unknown error"
-        promise.reject("EXPORT_FAILED", "Video export failed: \(errorMessage)")
+        promise.reject("EXPORT_FAILED", "Video export failed: \(errorMessage) [trimmedStartSeconds=\(trimmedStartSeconds), convertedToHevc=false]")
       case .cancelled:
-        promise.reject("EXPORT_CANCELLED", "Video export was cancelled")
+        promise.reject("EXPORT_CANCELLED", "Video export was cancelled [trimmedStartSeconds=\(trimmedStartSeconds), convertedToHevc=false]")
       default:
-        promise.reject("EXPORT_ERROR", "Export ended with status: \(exportSession.status.rawValue)")
+        promise.reject("EXPORT_ERROR", "Export ended with status: \(exportSession.status.rawValue) [trimmedStartSeconds=\(trimmedStartSeconds), convertedToHevc=false]")
       }
     }
   }
