@@ -52,10 +52,12 @@ public class ExpoVideoCompressModule: Module {
 
     // If first frame is already at timestamp 0, return the original path
     if firstSampleTime == .zero || firstSampleTime.seconds <= 0 {
+      let durationSeconds = (max(asset.duration.seconds, 0) * 1000).rounded() / 1000
       promise.resolve([
         "uri": videoPath,
         "trimmedStartSeconds": 0.0,
-        "convertedToHevc": false
+        "convertedToHevc": false,
+        "duration": durationSeconds
       ])
       return
     }
@@ -135,10 +137,13 @@ public class ExpoVideoCompressModule: Module {
     exportSession.exportAsynchronously {
       switch exportSession.status {
       case .completed:
+        let outputAsset = AVURLAsset(url: outputURL)
+        let outputDuration = (max(outputAsset.duration.seconds, 0) * 1000).rounded() / 1000
         promise.resolve([
           "uri": "file://\(outputURL.path)",
           "trimmedStartSeconds": trimmedStartSeconds,
-          "convertedToHevc": false
+          "convertedToHevc": false,
+          "duration": outputDuration
         ])
       case .failed:
         let errorMessage = exportSession.error?.localizedDescription ?? "Unknown error"

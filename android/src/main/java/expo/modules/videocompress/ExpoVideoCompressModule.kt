@@ -27,11 +27,12 @@ class ExpoVideoCompressModule : Module() {
   companion object {
     private const val TAG = "ExpoVideoCompress"
 
-    fun buildResult(uri: String, trimmedStartSeconds: Double, convertedToHevc: Boolean): Map<String, Any> {
+    fun buildResult(uri: String, trimmedStartSeconds: Double, convertedToHevc: Boolean, duration: Double): Map<String, Any> {
       return mapOf(
         "uri" to uri,
         "trimmedStartSeconds" to trimmedStartSeconds,
-        "convertedToHevc" to convertedToHevc
+        "convertedToHevc" to convertedToHevc,
+        "duration" to duration
       )
     }
 
@@ -113,7 +114,18 @@ class ExpoVideoCompressModule : Module() {
     // If no processing needed, return the original path
     if (!needsTrim && !needsHevcEncode) {
       Log.d(TAG, "No processing needed, returning original")
-      promise.resolve(buildResult(videoPath, 0.0, false))
+      val retrieverForDuration = MediaMetadataRetriever()
+      var durationSeconds = 0.0
+      try {
+        retrieverForDuration.setDataSource(cleanVideoPath)
+        val durationMs = retrieverForDuration.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull() ?: 0L
+        durationSeconds = Math.round(durationMs.toDouble()) / 1000.0
+      } catch (e: Exception) {
+        Log.w(TAG, "Failed to read duration: ${e.message}")
+      } finally {
+        retrieverForDuration.release()
+      }
+      promise.resolve(buildResult(videoPath, 0.0, false, durationSeconds))
       return
     }
 
@@ -187,11 +199,12 @@ class ExpoVideoCompressModule : Module() {
         val transformer = transformerBuilder
           .addListener(object : Transformer.Listener {
             override fun onCompleted(composition: Composition, exportResult: ExportResult) {
+              val durationSeconds = Math.round(exportResult.durationMs.toDouble()) / 1000.0
               Log.d(TAG, "Trim completed - duration: ${exportResult.durationMs}ms, " +
                 "size: ${exportResult.fileSizeBytes} bytes, " +
                 "frames: ${exportResult.videoFrameCount}, " +
                 "trimmedStartSeconds: $trimmedStartSeconds, convertedToHevc: $needsHevcEncode")
-              promise.resolve(buildResult("file://$cleanOutputPath", trimmedStartSeconds, needsHevcEncode))
+              promise.resolve(buildResult("file://$cleanOutputPath", trimmedStartSeconds, needsHevcEncode, durationSeconds))
             }
 
             override fun onError(

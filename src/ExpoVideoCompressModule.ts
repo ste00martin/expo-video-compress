@@ -4,6 +4,7 @@ export type VideoCompressResult = {
   uri: string;
   trimmedStartSeconds: number;
   convertedToHevc: boolean;
+  duration: number;
 };
 
 declare class ExpoVideoCompressModule extends NativeModule {
