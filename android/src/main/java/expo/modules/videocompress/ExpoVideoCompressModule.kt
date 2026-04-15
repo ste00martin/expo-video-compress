@@ -20,19 +20,22 @@ import expo.modules.kotlin.Promise
 import expo.modules.kotlin.exception.Exceptions
 import expo.modules.kotlin.modules.Module
 import expo.modules.kotlin.modules.ModuleDefinition
+import android.graphics.Bitmap
 import java.io.File
+import java.io.FileOutputStream
 import java.util.UUID
 
 class ExpoVideoCompressModule : Module() {
   companion object {
     private const val TAG = "ExpoVideoCompress"
 
-    fun buildResult(uri: String, trimmedStartSeconds: Double, convertedToHevc: Boolean, duration: Double): Map<String, Any> {
+    fun buildResult(uri: String, trimmedStartSeconds: Double, convertedToHevc: Boolean, duration: Double, thumbnail: String): Map<String, Any> {
       return mapOf(
         "uri" to uri,
         "trimmedStartSeconds" to trimmedStartSeconds,
         "convertedToHevc" to convertedToHevc,
-        "duration" to duration
+        "duration" to duration,
+        "thumbnail" to thumbnail
       )
     }
 
@@ -66,13 +69,33 @@ class ExpoVideoCompressModule : Module() {
   override fun definition() = ModuleDefinition {
     Name("ExpoVideoCompress")
 
-    AsyncFunction("trimVideo") { videoPath: String, promise: Promise ->
-      processTrim(videoPath, promise)
+    AsyncFunction("trimVideo") { videoPath: String, thumbnailQuality: Double?, promise: Promise ->
+      processTrim(videoPath, thumbnailQuality ?: 0.9, promise)
+    }
+  }
+
+  private fun extractThumbnail(path: String, timeUs: Long, quality: Int): String {
+    val retriever = MediaMetadataRetriever()
+    return try {
+      retriever.setDataSource(path)
+      val bitmap = retriever.getFrameAtTime(timeUs, MediaMetadataRetriever.OPTION_CLOSEST_SYNC)
+        ?: return ""
+      val thumbFile = File(context.cacheDir, "thumb_${UUID.randomUUID()}.jpg")
+      FileOutputStream(thumbFile).use { out ->
+        bitmap.compress(Bitmap.CompressFormat.JPEG, quality, out)
+      }
+      bitmap.recycle()
+      "file://${thumbFile.absolutePath}"
+    } catch (e: Exception) {
+      Log.w(TAG, "Failed to extract thumbnail: ${e.message}")
+      ""
+    } finally {
+      retriever.release()
     }
   }
 
   @OptIn(UnstableApi::class)
-  private fun processTrim(videoPath: String, promise: Promise) {
+  private fun processTrim(videoPath: String, thumbnailQuality: Double, promise: Promise) {
     val cleanVideoPath = videoPath.removePrefix("file://")
 
     // Step 1: Validate video file exists
@@ -111,6 +134,11 @@ class ExpoVideoCompressModule : Module() {
 
     val trimmedStartSeconds = if (needsTrim) firstPtsUs / 1_000_000.0 else 0.0
 
+    // Extract thumbnail at the first real frame's timestamp
+    val thumbnailTimeUs = if (firstPtsUs > 0) firstPtsUs else 0L
+    val jpegQuality = (thumbnailQuality * 100).toInt().coerceIn(0, 100)
+    val thumbnailUri = extractThumbnail(cleanVideoPath, thumbnailTimeUs, jpegQuality)
+
     // If no processing needed, return the original path
     if (!needsTrim && !needsHevcEncode) {
       Log.d(TAG, "No processing needed, returning original")
@@ -125,7 +153,7 @@ class ExpoVideoCompressModule : Module() {
       } finally {
         retrieverForDuration.release()
       }
-      promise.resolve(buildResult(videoPath, 0.0, false, durationSeconds))
+      promise.resolve(buildResult(videoPath, 0.0, false, durationSeconds, thumbnailUri))
       return
     }
 
@@ -204,7 +232,7 @@ class ExpoVideoCompressModule : Module() {
                 "size: ${exportResult.fileSizeBytes} bytes, " +
                 "frames: ${exportResult.videoFrameCount}, " +
                 "trimmedStartSeconds: $trimmedStartSeconds, convertedToHevc: $needsHevcEncode")
-              promise.resolve(buildResult("file://$cleanOutputPath", trimmedStartSeconds, needsHevcEncode, durationSeconds))
+              promise.resolve(buildResult("file://$cleanOutputPath", trimmedStartSeconds, needsHevcEncode, durationSeconds, thumbnailUri))
             }
 
             override fun onError(

@@ -1,18 +1,42 @@
 import ExpoModulesCore
 import AVFoundation
+import UIKit
 
 public class ExpoVideoCompressModule: Module {
   public func definition() -> ModuleDefinition {
     Name("ExpoVideoCompress")
 
-    AsyncFunction("trimVideo") { (videoPath: String, promise: Promise) in
+    AsyncFunction("trimVideo") { (videoPath: String, thumbnailQuality: Double?, promise: Promise) in
+      let quality = thumbnailQuality ?? 0.9
       DispatchQueue.global(qos: .userInitiated).async {
-        self.processTrim(videoPath: videoPath, promise: promise)
+        self.processTrim(videoPath: videoPath, thumbnailQuality: quality, promise: promise)
       }
     }
   }
 
-  private func processTrim(videoPath: String, promise: Promise) {
+  private func extractThumbnail(from asset: AVURLAsset, at time: CMTime, quality: Double) -> String {
+    let generator = AVAssetImageGenerator(asset: asset)
+    generator.appliesPreferredTrackTransform = true
+    generator.requestedTimeToleranceBefore = .zero
+    generator.requestedTimeToleranceAfter = .zero
+
+    do {
+      let cgImage = try generator.copyCGImage(at: time, actualTime: nil)
+      let uiImage = UIImage(cgImage: cgImage)
+      guard let jpegData = uiImage.jpegData(compressionQuality: CGFloat(quality)) else {
+        return ""
+      }
+      let thumbURL = FileManager.default.temporaryDirectory
+        .appendingPathComponent("thumb_\(UUID().uuidString)")
+        .appendingPathExtension("jpg")
+      try jpegData.write(to: thumbURL)
+      return "file://\(thumbURL.path)"
+    } catch {
+      return ""
+    }
+  }
+
+  private func processTrim(videoPath: String, thumbnailQuality: Double, promise: Promise) {
     // Strip file:// prefix if present
     let cleanVideoPath = videoPath.hasPrefix("file://") ? String(videoPath.dropFirst(7)) : videoPath
 
@@ -50,6 +74,10 @@ public class ExpoVideoCompressModule: Module {
 
     let trimmedStartSeconds = max(firstSampleTime.seconds, 0)
 
+    // Extract thumbnail at the first real frame's timestamp
+    let thumbnailTime = firstSampleTime.seconds > 0 ? firstSampleTime : CMTime.zero
+    let thumbnailUri = self.extractThumbnail(from: asset, at: thumbnailTime, quality: thumbnailQuality)
+
     // If first frame is already at timestamp 0, return the original path
     if firstSampleTime == .zero || firstSampleTime.seconds <= 0 {
       let durationSeconds = (max(asset.duration.seconds, 0) * 1000).rounded() / 1000
@@ -57,7 +85,8 @@ public class ExpoVideoCompressModule: Module {
         "uri": videoPath,
         "trimmedStartSeconds": 0.0,
         "convertedToHevc": false,
-        "duration": durationSeconds
+        "duration": durationSeconds,
+        "thumbnail": thumbnailUri
       ])
       return
     }
@@ -143,7 +172,8 @@ public class ExpoVideoCompressModule: Module {
           "uri": "file://\(outputURL.path)",
           "trimmedStartSeconds": trimmedStartSeconds,
           "convertedToHevc": false,
-          "duration": outputDuration
+          "duration": outputDuration,
+          "thumbnail": thumbnailUri
         ])
       case .failed:
         let errorMessage = exportSession.error?.localizedDescription ?? "Unknown error"

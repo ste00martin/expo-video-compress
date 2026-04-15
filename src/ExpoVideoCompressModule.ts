@@ -5,6 +5,7 @@ export type VideoCompressResult = {
   trimmedStartSeconds: number;
   convertedToHevc: boolean;
   duration: number;
+  thumbnail: string;
 };
 
 declare class ExpoVideoCompressModule extends NativeModule {
@@ -14,7 +15,7 @@ declare class ExpoVideoCompressModule extends NativeModule {
    * @param videoPath Local file path (file:// URI) to the source video
    * @returns A promise that resolves with an object containing the output URI and processing metadata
    */
-  trimVideo(videoPath: string): Promise<VideoCompressResult>;
+  trimVideo(videoPath: string, thumbnailQuality?: number): Promise<VideoCompressResult>;
 }
 
 export default requireNativeModule<ExpoVideoCompressModule>('ExpoVideoCompress');
